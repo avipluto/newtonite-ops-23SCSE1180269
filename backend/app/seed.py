@@ -166,11 +166,16 @@ def seed(reset: bool = False) -> None:
                               created_at=created_at, updated_at=created_at))
             histories.append(events)
 
+        # Core table inserts (not ORM) so thousands of rows go to Postgres in a few big batches.
+        items_table, activity_table = WorkItem.__table__, ActivityEvent.__table__
         new_ids = db.execute(
-            insert(WorkItem).returning(WorkItem.id, sort_by_parameter_order=True), items
+            insert(items_table).returning(items_table.c.id, sort_by_parameter_order=True), items
         ).scalars().all()
-        activity = [dict(item_id=item_id, **event) for item_id, events in zip(new_ids, histories) for event in events]
-        db.execute(insert(ActivityEvent), activity)
+        activity = [dict(item_id=item_id, comment_id=None, **event)
+                    for item_id, events in zip(new_ids, histories) for event in events]
+        db.execute(insert(activity_table), activity)
+        db.commit()
+        db.execute(text("ANALYZE"))  # fresh statistics so the query planner picks the right indexes
         db.commit()
         print(f"Seeded {len(TEAMS)} teams, {len(USERS)} users, {len(items)} items, {len(activity)} activity events.")
         print(f"Every demo user's password is: {DEMO_PASSWORD}")
